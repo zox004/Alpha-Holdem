@@ -172,10 +172,29 @@ def main():
 
         def print_game_info(self):
             pass
-
+        # def get_state(self):
+            
         def print_round_info(self):
             print("\n")
+            global RL_my_card
+            global RL_score
+            global RL_my_chip
+            global RL_op_chip
+            global RL_pot
+            global RL_commu_card
+            global RL_op_stake
+
+            RL_pot = self.pot
+            RL_commu_card = self.cards
+
             for player in self.list_of_players:
+                if player.name!="computer":
+                    RL_my_card = player.cards
+                    RL_score = player.score
+                    RL_my_chip = player.chips
+                else:
+                    RL_op_chip = player.chips
+                    RL_op_stake = player.stake
                 print("\n")
                 print(f"Name: {player.name}")
                 print(f"Cards: {player.cards}")
@@ -191,6 +210,7 @@ def main():
                 print("\n")
             print(f"Pot: {self.pot}")
             print(f"Community cards: {self.cards}")
+            # get_state()
             print("\n")
 
         def establish_player_attributes(self):
@@ -1142,7 +1162,7 @@ def main():
         game0 = Game()
         while True:
             play(game0)
-
+    
     game_event = threading.Event()
     response_q = queue.Queue()
     game_info_q = queue.Queue()
