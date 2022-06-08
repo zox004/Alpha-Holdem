@@ -7,7 +7,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.tensorboard import SummaryWriter
 import torch.multiprocessing as mp
-
+import env
 
 import numpy as np
 import random
@@ -258,11 +258,27 @@ batch_size = 5
 hidden_layer_num = 2
 hidden_dim_size = 128
 
+# state = [card, commu_card, value, my chip, opp_chip, pot, opp_action, flop, dealer_btn]
+# action = [fold, check, call, bet(33%, 50%, 100%), raise(2bet, 3bet), all_in]
+# state가 dict로 표현해도 괜찮은지 모르겠음
+# state = {"card":(None,None), "commu_card":(None,None,None,None,None), "value":(None,None,None), "my_chip":0,
+#          "opp_chip":0, "pot":0, "opp_action":0, "flop":(0,0,0,0), "dealer_btn":False}
+
+# state 간소화 -> state = [my_card1, my_card1_suit, my_card2, my_card1_suit, commu_card1, commu_card1_suit,
+#                         commu_card2, commu_card2_suit, commu_card3, commu_card3_suit, commu_card4, commu_card4_suit,
+#                         commu_card5, commu_card5_suit, pot, my_chip, opp_chip, opp_action]
+state = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
+# action = [Fold, Call, Raise, All_in]
+action = [0, 0, 0, 0]
+# reward = round win +1, chips fluctuation +- 0.005, round count -0.001
+
 if __name__ == "__main__":
     # Set gym environment
     env = gym.make(env_name)
-    env_state_space = env.observation_space.shape[0]
-    env_action_space = env.action_space.n
+    # env_state_space = env.observation_space.shape[0]
+    env_state_space = len(state)
+    # env_action_space = env.action_space.n
+    env_action_space = len(action)
     
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -291,7 +307,7 @@ if __name__ == "__main__":
     mp.set_start_method('spawn') # Must be spawn
     print("MP start method:",mp.get_start_method())
 
-    for rank in range(process_num):
+    for rank in range(process_num): 
         if rank == 0:
             p = mp.Process(target=test, args=(global_Actor, device, rank, ))
         else:
@@ -299,4 +315,4 @@ if __name__ == "__main__":
         p.start()
         processes.append(p)
     for p in processes:
-        p.join()
+        p.join() # waiting for processes's completion
