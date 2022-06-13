@@ -1,5 +1,3 @@
-import gym
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,11 +5,12 @@ import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.tensorboard import SummaryWriter
 import torch.multiprocessing as mp
-import env
-
+import holdemEnv
+import utils
 import numpy as np
 import random
 import time
+
 
 # Critic Network
 class Critic(nn.Module):
@@ -87,48 +86,78 @@ class Actor(nn.Module):
 
 def train(global_Actor, global_Critic, device, rank):
 
-    env = gym.make(env_name)
-    env_state_space = env.observation_space.shape[0]
-    env_action_space = env.action_space.n
+    env = holdemEnv.TexasHoldemEnv(2)
+    # env_state_space = env.observation_space.shape[0]
+    env_state_space = 11
+    # env_action_space = env.action_space.n
+    env_action_space = 4
+    env.add_player(0, stack=2000) # add a player to seat 0 with 2000 "chips"
+    env.add_player(1, stack=2000) # add another player to seat 1 with 2000 "chips"    
 
     np.random.seed(seed+rank)
     random.seed(seed+rank)
     seed_torch(seed+rank)
     env.seed(seed+rank)
 
-    local_Actor = Actor(state_space=env_state_space,
+    local_Actor1 = Actor(state_space=env_state_space,
                   action_space=env_action_space,
                   num_hidden_layer=hidden_layer_num,
                   hidden_dim=hidden_dim_size).to(device)
-    local_Critic = Critic(state_space=env_state_space,
+    local_Critic1 = Critic(state_space=env_state_space,
+                    num_hidden_layer=hidden_layer_num,
+                    hidden_dim=hidden_dim_size).to(device)
+    local_Actor2 = Actor(state_space=env_state_space,
+                  action_space=env_action_space,
+                  num_hidden_layer=hidden_layer_num,
+                  hidden_dim=hidden_dim_size).to(device)
+    local_Critic2 = Critic(state_space=env_state_space,
                     num_hidden_layer=hidden_layer_num,
                     hidden_dim=hidden_dim_size).to(device)
 
-    local_Actor.load_state_dict(global_Actor.state_dict())
-    local_Critic.load_state_dict(global_Critic.state_dict())
+
+    local_Actor1.load_state_dict(global_Actor.state_dict())
+    local_Critic1.load_state_dict(global_Critic.state_dict())
+    local_Actor2.load_state_dict(global_Actor.state_dict())
+    local_Critic2.load_state_dict(global_Critic.state_dict())
 
     batch = []
 
     # Set Optimizer
-    actor_optimizer = optim.Adam(global_Actor.parameters(), lr=actor_lr)
-    critic_optimizer = optim.Adam(global_Critic.parameters(), lr=critic_lr)
+    actor_optimizer1 = optim.Adam(global_Actor.parameters(), lr=actor_lr)
+    critic_optimizer1 = optim.Adam(global_Critic.parameters(), lr=critic_lr)
+    actor_optimizer2 = optim.Adam(global_Actor.parameters(), lr=actor_lr)
+    critic_optimizer2 = optim.Adam(global_Critic.parameters(), lr=critic_lr)
 
-    for epi in range(episodes):
-        s = env.reset()
-
+    for epi in range(1):
+        (player_states, (community_infos, community_cards)) = env.reset()
+        (player_infos, player_hands) = zip(*player_states)
         done = False
         score = 0
-        
+        my_hands, opp_hands = player_hands
+        commu_cards = community_cards
+        pot = community_infos[3]
+        last_opp_bet = community_infos[-2]            
+        s = my_hands + opp_hands + commu_cards + [pot] + [last_opp_bet] # pot 과 last_opp_bet은 int형이라 list 변환 후 더함
+        s = np.array(s)
         step = 0
+        env.render(mode='human')
         while (not done) and (step < max_step):
-
             # Get action
-            a_prob = local_Actor(torch.from_numpy(s).float().to(device))
+            a_prob = local_Actor1(torch.from_numpy(s).float().to(device))
             a_distrib = Categorical(a_prob)
             a = a_distrib.sample()
 
             # Interaction with Environment
-            s_prime, r, done, _ = env.step(a.item())
+            (player_states, (community_infos, community_cards)), rews, done, info = env.step(a.item())
+            (player_infos, player_hands) = zip(*player_states)
+            my_hands, opp_hands = player_hands
+            commu_cards = community_cards
+            pot = community_infos[3]
+            last_opp_bet = community_infos[-2]            
+            s_prime = my_hands + opp_hands + commu_cards + [pot] + [last_opp_bet] # pot 과 last_opp_bet은 int형이라 list 변환 후 더함
+            s_prime = np.array(s_prime)
+            r = 0
+            # s_prime, r, done, _ = env.step(a.item()) # a.item() action의 확률 중 하나를 뽑아 그거를 int형으로 변환
 
             done_mask = 0 if done is True  else 1
 
@@ -153,40 +182,42 @@ def train(global_Actor, global_Critic, device, rank):
                     s_prime_buf = torch.FloatTensor(s_prime_buf).to(device)
                     done_buf = torch.FloatTensor(done_buf).unsqueeze(1).to(device)
 
-                    v_s = local_Critic(s_buf)
-                    v_prime = local_Critic(s_prime_buf)
+                    v_s = local_Critic1(s_buf)
+                    v_prime = local_Critic1(s_prime_buf)
 
                     Q = r_buf+discount_rate*v_prime.detach()*done_buf # value target
                     A =  Q - v_s                              # Advantage
                     
                     # Update Critic
-                    critic_optimizer.zero_grad()
+                    critic_optimizer1.zero_grad()
                     critic_loss = F.mse_loss(v_s, Q.detach())
                     critic_loss.backward()
-                    for global_param, local_param in zip(global_Critic.parameters(), local_Critic.parameters()):
+                    for global_param, local_param in zip(global_Critic.parameters(), local_Critic1.parameters()):
                         global_param._grad = local_param.grad
-                    critic_optimizer.step()
+                    critic_optimizer1.step()
 
                     # Update Actor
-                    actor_optimizer.zero_grad()
+                    actor_optimizer1.zero_grad()
                     actor_loss = 0
                     for idx, prob in enumerate(prob_buf):
                         actor_loss += -A[idx].detach() * torch.log(prob)
                     actor_loss /= len(prob_buf) 
                     actor_loss.backward()
 
-                    for global_param, local_param in zip(global_Actor.parameters(), local_Actor.parameters()):
+                    for global_param, local_param in zip(global_Actor.parameters(), local_Actor1.parameters()):
                         global_param._grad = local_param.grad
-                    actor_optimizer.step()
+                    actor_optimizer1.step()
 
-                    local_Actor.load_state_dict(global_Actor.state_dict())
-                    local_Critic.load_state_dict(global_Critic.state_dict())
+                    local_Actor1.load_state_dict(global_Actor.state_dict())
+                    local_Critic1.load_state_dict(global_Critic.state_dict())
 
                     batch = []
 
             s = s_prime
+            
             score += r
             step += 1
+            env.render(mode='human')
         
     env.close()
     print("Process {} Finished.".format(rank))
@@ -195,7 +226,7 @@ def train(global_Actor, global_Critic, device, rank):
 
 def test(global_Actor, device, rank):
     
-    env = gym.make(env_name)
+    env = holdemEnv.TexasHoldemEnv(2)
 
     np.random.seed(seed)
     random.seed(seed)
@@ -204,13 +235,18 @@ def test(global_Actor, device, rank):
     
     score = 0
 
-    for epi in range(episodes):
-        s = env.reset()
-
+    for epi in range(1):
+        (player_states, (community_infos, community_cards)) = env.reset()
+        (player_infos, player_hands) = zip(*player_states)
         done = False
-        # score = 0
-        step = 0 
-        
+        score = 0
+        my_hands, opp_hands = player_hands
+        commu_cards = community_cards
+        pot = community_infos[3]
+        last_opp_bet = community_infos[-2]            
+        s = my_hands + opp_hands + commu_cards + [pot] + [last_opp_bet] # pot 과 last_opp_bet은 int형이라 list 변환 후 더함
+        step = 0
+
         while (not done) and (step < max_step):
             # Get action
             a_prob = global_Actor(torch.from_numpy(s).float().to(device))
@@ -218,7 +254,14 @@ def test(global_Actor, device, rank):
             a = a_distrib.sample()
 
             # Interaction with Environment
-            s_prime, r, done, _ = env.step(a.item())
+            (player_states, (community_infos, community_cards)), rews, done, info = env.step(a.item())
+            (player_infos, player_hands) = zip(*player_states)
+            my_hands, opp_hands = player_hands
+            commu_cards = community_cards
+            pot = community_infos[3]
+            last_opp_bet = community_infos[-2]            
+            s_prime = my_hands + opp_hands + commu_cards + [pot] + [last_opp_bet] # pot 과 last_opp_bet은 int형이라 list 변환 후 더함
+            r = 0
 
             s = s_prime
             score += r
@@ -267,52 +310,68 @@ hidden_dim_size = 128
 # state 간소화 -> state = [my_card1, my_card1_suit, my_card2, my_card1_suit, commu_card1, commu_card1_suit,
 #                         commu_card2, commu_card2_suit, commu_card3, commu_card3_suit, commu_card4, commu_card4_suit,
 #                         commu_card5, commu_card5_suit, pot, my_chip, opp_chip, opp_action]
-state = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
-# action = [Fold, Call, Raise, All_in]
-action = [0, 0, 0, 0]
+state = [0] * 11
+# action = [Check, Call : 상대 betting 금액과 동일, Raise : 상대 betting 금액의 2배, All_in]
+action = [0.25, 0.25, 0.25, 0.25]
 # reward = round win +1, chips fluctuation +- 0.005, round count -0.001
-
+reward = {"round_win":1, "chips_fluctuation":0.005, "round_count":0.001}
 if __name__ == "__main__":
     # Set gym environment
-    env = gym.make(env_name)
+    env = holdemEnv.TexasHoldemEnv(2)
+    
     # env_state_space = env.observation_space.shape[0]
-    env_state_space = len(state)
+    env_state_space = 11
     # env_action_space = env.action_space.n
-    env_action_space = len(action)
+    env_action_space = 4
     
     if torch.cuda.is_available():
         device = torch.device("cuda")
-
+    device = torch.device("cpu")
     np.random.seed(seed)
     random.seed(seed)
     seed_torch(seed)
     env.seed(seed)
 
-    global_Actor = Actor(state_space=env_state_space,
+    global_Actor1 = Actor(state_space=env_state_space,
                   action_space=env_action_space,
                   num_hidden_layer=hidden_layer_num,
                   hidden_dim=hidden_dim_size).to(device)
-    global_Critic = Critic(state_space=env_state_space,
+    global_Critic1 = Critic(state_space=env_state_space,
                     num_hidden_layer=hidden_layer_num,
                     hidden_dim=hidden_dim_size).to(device)
-    
+    global_Actor2 = Actor(state_space=env_state_space,
+                  action_space=env_action_space,
+                  num_hidden_layer=hidden_layer_num,
+                  hidden_dim=hidden_dim_size).to(device)
+    global_Critic2 = Critic(state_space=env_state_space,
+                    num_hidden_layer=hidden_layer_num,
+                    hidden_dim=hidden_dim_size).to(device)
+
     env.close()
 
-    global_Actor.share_memory()
-    global_Critic.share_memory()
+    global_Actor1.share_memory()
+    global_Critic1.share_memory()
+    global_Actor2.share_memory()
+    global_Critic2.share_memory()
 
     processes = []
     process_num = 5
-
+    # rank=1
+    # train(global_Actor1, global_Critic1, device, rank)
     mp.set_start_method('spawn') # Must be spawn
     print("MP start method:",mp.get_start_method())
 
     for rank in range(process_num): 
-        if rank == 0:
-            p = mp.Process(target=test, args=(global_Actor, device, rank, ))
-        else:
-            p = mp.Process(target=train, args=(global_Actor, global_Critic, device, rank, ))
-        p.start()
-        processes.append(p)
+        # if rank == 0:
+        #     p1 = mp.Process(target=test, args=(global_Actor1, device, rank, ))
+        #     p2 = mp.Process(target=test, args=(global_Actor2, device, rank, ))
+        # else:
+        p1 = mp.Process(target=train, args=(global_Actor1, global_Critic1, device, rank, ))
+        # p2 = mp.Process(target=train, args=(global_Actor2, global_Critic2, device, rank, ))
+
+        p1.start()
+        processes.append(p1)
+        # p2.start()
+        # processes.append(p2)
     for p in processes:
         p.join() # waiting for processes's completion
