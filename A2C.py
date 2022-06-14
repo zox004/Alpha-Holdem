@@ -10,97 +10,55 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import random
 
-
-# Critic Network
 class Critic(nn.Module):
-    def __init__(self, state_space=None,
-                       num_hidden_layer=2,
-                       hidden_dim=None):
-
+    def __init__(self, state_space=None):
         super(Critic, self).__init__()
-
-        # space size check
-        assert state_space is not None, "None state_space input: state_space should be assigned."
         
-        if hidden_dim is None:
-            hidden_dim = state_space * 2
-
         self.layers = nn.ModuleList()
-
-        # Add input layer
-        self.layers.append(nn.Linear(state_space, hidden_dim))
-
-        # Add hidden layers
-        for i in range(num_hidden_layer):
-            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
-
-        self.layers.append(nn.Linear(hidden_dim, 1))
+        self.layers.append(nn.Linear(state_space, 64))
+        self.layers.append(nn.Linear(64, 64))
+        self.layers.append(nn.Linear(64, 64))
+        self.layers.append(nn.Linear(64, 1))
 
     def forward(self, x):
-
         for layer in self.layers[:-1]:
             x = F.relu(layer(x))
-
         out = self.layers[-1](x)
-
         return out
 
-# Actor Network
 class Actor(nn.Module):
-    def __init__(self, state_space=None,
-                       action_space=None,
-                       num_hidden_layer=2,
-                       hidden_dim=None):
-
+    def __init__(self, state_space=None, action_space=None):
         super(Actor, self).__init__()
 
-        # space size check
-        assert state_space is not None, "None state_space input: state_space should be assigned."
-        assert action_space is not None, "None action_space input: action_space should be assigned"
-        
-
-        if hidden_dim is None:
-            hidden_dim = state_space * 2
-
         self.layers = nn.ModuleList()
-
-        # Add input layer
-        self.layers.append(nn.Linear(state_space, hidden_dim))
-
-        # Add hidden layers
-        for i in range(num_hidden_layer):
-            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
-
-        self.layers.append(nn.Linear(hidden_dim, action_space))
+        self.layers.append(nn.Linear(state_space, 64))
+        self.layers.append(nn.Linear(64, 64))
+        self.layers.append(nn.Linear(64, 64))
+        self.layers.append(nn.Linear(64, action_space))
 
     def forward(self, x):
-
         for layer in self.layers[:-1]:
             x = F.relu(layer(x))
-
         out = F.softmax(self.layers[-1](x), dim=0)
-
         return out
 
 def train(actor, critic, 
           critic_optimizer, actor_optimizer,
-          gamma,
-          batch,
-          device):
-    global critic_loss, actor_loss
+          gamma, batches, device):
+          
     s_buf = []
     s_prime_buf = []
     r_buf = []
     prob_buf = []
     done_buf = []
 
-    for item in batch:
-        s_buf.append(item[0])
-        r_buf.append(item[1])
-        s_prime_buf.append(item[2])
-        prob_buf.append(item[3])
-        done_buf.append(item[4])
-
+    for batch in batches:
+        s_buf.append(batch[0])
+        r_buf.append(batch[1])
+        s_prime_buf.append(batch[2])
+        prob_buf.append(batch[3])
+        done_buf.append(batch[4])
+        
     s_buf = torch.FloatTensor(s_buf).to(device)
     r_buf = torch.FloatTensor(r_buf).unsqueeze(1).to(device)
     s_prime_buf = torch.FloatTensor(s_prime_buf).to(device)
@@ -109,7 +67,7 @@ def train(actor, critic,
     v_s = critic(s_buf)
     v_prime = critic(s_prime_buf)
 
-    Q = r_buf+gamma*v_prime.detach()*done_buf # value target
+    Q = r_buf + gamma * v_prime.detach() * done_buf # value target
     A =  Q - v_s                      # Advantage
 
     # Update Critic
@@ -122,7 +80,7 @@ def train(actor, critic,
     actor_optimizer.zero_grad()
     actor_loss = 0
     for idx, prob in enumerate(prob_buf):
-        actor_loss += A[idx].detach() * torch.log(prob)
+        actor_loss += -A[idx].detach() * torch.log(prob)
     actor_loss /= len(prob_buf) 
     actor_loss.backward()
     actor_optimizer.step()
@@ -169,15 +127,13 @@ if __name__ == "__main__":
     batch = []
     batch_size = 5 # 5 is best until now
 
-    critic = Critic(state_space=env.observation_space.shape[0],
-                    num_hidden_layer=2,
-                    hidden_dim=64).to(device)
+    critic = Critic(state_space=env.observation_space.shape[0]).to(device)
     
     actor = Actor(state_space=env.observation_space.shape[0],
-                  action_space=env.action_space.n,
-                  num_hidden_layer=2,
-                  hidden_dim=64).to(device)
+                  action_space=env.action_space.n).to(device)
     
+    actor.load_state_dict(torch.load("Actor-Critic100_.pth"))
+    actor.eval()
 
     # Set Optimizer
     critic_optimizer = optim.Adam(critic.parameters(), lr=critic_lr)
@@ -221,9 +177,10 @@ if __name__ == "__main__":
 
 
         # Logging
-        print("epsiode: {}, score: {}, actor_loss: {}, critic_loss :{}".format(epi, score, actor_loss, critic_loss))
+        print("epsiode: {}, score: {}".format(epi, score))
         writer.add_scalar('Rewards per epi', score, epi)
-        save_model(actor, model_name+"_"+".pth")
+        # if epi%50==0 and epi!=0:
+        #     save_model(actor, model_name+"{}_.pth".format(epi))
 
     writer.close()
     env.close()
