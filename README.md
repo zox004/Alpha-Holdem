@@ -1,79 +1,242 @@
 # Alpha Holdem -  Playing Texas hold 'em AI with DRL
-## 주제
 
-**강화학습을 이용한 홀덤 AI 구현**
+# I. Introduction
 
-- 규칙은 총 52장의 카드로 진행하며, 개인 카드 2장과 커뮤니티 카드 5장으로 족보를 맞춰서 높은 쪽이 승리하는 게임이다. 처음 개인 카드가 2장 주어지고 베팅을 한다. 그 후 커뮤니티 카드 3장, 1장, 1장이 주어지고 베팅을 하는 시스템이다. 플레이어는 각 차례마다 60초 이상의 시간제한이 주어진다.
+Deep Reinforcement Learning을 이용한 홀덤 에이전트 구현 및 결과 분석
+
+- 포커의 일종인 홀덤은 총 52장의 카드로 진행하며, 개인 카드 2장과 커뮤니티 카드 5장으로 족보를 맞춰서 높은 쪽이 승리하는 게임이다. 처음 개인 카드가 2장 주어지고 베팅을 한다. 그 후 커뮤니티 카드 3장, 1장, 1장이 주어지고 카드가 주어질 때마다 베팅을 하는 시스템이다. 플레이어는 각 차례마다 60초 이상의 시간제한이 주어진다.
 - 알파고와는 달리 홀덤은 불완전 정보 게임이며, 바둑은 완전 정보 게임이다.
 - 하지만, 홀덤 역시 경우의 수가 매우 큰 Continuous Action Space를 가져 일반적인 강화학습 알고리즘으로는 학습이 어렵다. 그러므로 딥러닝 기반 강화학습(DRL) 알고리즘을 사용해야 한다.
-- 그 예시로, 2017년 카네기 맬런 대학에서 연구한 리브라투스는 강화학습과 CFR(Counterfactual Regret) 알고리즘을 사용해 좋은 성과를 이루어냈다.
-- DRL 알고리즘 중 정책 기반 에이전트는 Contiuous Action Space에서도 학습 성능이 좋기 때문에 정책 기반 에이전트 중에서도 좋은 성능을 보여준 A3C 알고리즘을 사용할 것이다.
+- 최근 여러 연구를 살펴보면, 불완전 정보 환경에서 CFR 알고리즘이 주로 쓰이며, 2017년 카네기 맬런 대학에서 연구한 리브라투스는 강화학습과 CFR(Counterfactual Regret) 알고리즘을 사용해 좋은 성과를 이루어냈다.
+- DRL 알고리즘 중 정책 기반 에이전트는 Contiuous Action Space에서도 학습 성능이 좋기 때문에 정책 기반 에이전트 중에서도 좋은 성능을 Actor-Critic 알고리즘을 사용할 것이다.
+- Actor-Critic 알고리즘은 가치함수와 정책함수를 두 개의 네트워크를 사용하는 것이 특징으로 $\pi (s,a)$값과 $V(s)$값을 이용해 학습을 진행한다.
+- A2C(Advantage Actor-Critic)은 ****Actor-Critic의 Actor의 기대출력으로 Advantage를 사용하면 A2C
+가 된다. Advantage는 예상했던 것, $V(s)$보다 얼마나 더 좋은 값인지를 판단하는 값으로, 이는 분산을 줄이는 효과가 있어 A2C 알고리즘을 이용해 학습을 진행해보았다.
 
-## Algorithm
+# II. Purpose
 
-### A3C
+- Python3를 이용해 홀덤 Environment를 구현한다.
+- Pytorch를 이용해 홀덤 환경에서 학습할 수 있는 Acotr-Critic 기반 Agent와 Model을 구현한다.
+- Actor-Critic 알고리즘 중 A2C의 두 가지 타입의 Architecture의 성능을 비교 분석한다.
+- 추가적으로, 사람과 대결할 수 있는 Application을 제작할 예정이다.
 
-Multi processing 필요
+# III. Software Design
 
-## Environment
+## III-1. Environment
 
 **MDP of the holdem Environment**
 
-$< S, A, P, R, γ >$
+                                                             $< S, A, P, R, γ >$
 
-$S$ : 현재 칩 개수, 현재 내 카드, 커뮤니티 카드, 현재 팟 상태, 방금 전 상대의 베팅 크기
+$S$ : My hand, Community hand, Pot, My Stack, Opponent Stack, Opponent Bet
 
-$A$ : Fold, Check, Call, Raise, Bet, All-in (Continuous Action space = $10^{161}$ in No-Limit Betting)
+⇒ 총 11개의 state
 
-$P : P_{ss'}^a = 1(∀a, ∀s, ∀s’ )$ 
+$A$ : Fold, Check, Call, Raise(Continuous Action space = $10^{161}$ in No-Limit Betting)
 
-$R$ : 라운드 승리 +2, 라운드 패배 -2, 최종 승리 +10, 최종 패배 -10, 낮은 밸류로 블러프에 성공했을 때 +1, 칩의 변화 +-0.01
+⇒ 베팅 금액은 연속적이므로 방대한 Actions space를 가진다
 
-$γ ∈ [0.05, 0.95]$ : discount factor
+$P$ ****: $P_{ss'}^a$ $=  1(∀a, ∀s, ∀s’ )$
 
-## 이해해야할 게임이론
+$R$ : 라운드 승패 $\pm$ 1, 라운드 마다 칩의 변화  * 0.005
 
-**제로섬 게임**
+$**γ ∈ [0.05, 0.99]**$ : discount factor (Generally, 0.99)
 
-- (1:1 상황) 플레이어A와 플레이어B가 있을 때 A가 돈을 따게 되면 B는 돈을 잃어 두 플레이어 간 이득과 손실의 합이 0이 된다.
+## III-2. Functional Requirement
 
-**Nash Equilibrium**
-
-- 게임 이론에서 경쟁자 대응에 따라 최선의 선택을 하면 서로가 자신의 선택을 바꾸지 않는 균형상태를 말한다. 상대방이 현재 전략을 유지한다는 전제 하에 나 자신도 현재 전략을 바꿀 유인이 없는 상태를 말하는 것으로 죄수의 딜레마와 밀접한 관계가 있다.
-
-**CFR(CounterFactual Regret)**
-
-- ~하지 않았다면(원인) ~했을텐데
+1. Visualized Environment
     
-    → 현재 state에서 실행했던 action이 아닌 other action을 했다면 other reward를 받았을텐데
+    Python을 이용해 게임을 시각화한다. 이전에 tkinter 라이브러리를 이용해 환경에 대한 정보와 GUI를 멀티스레딩으로 구현했지만, 정보 만을 이용해 학습하는 강화학습엔 어려움이 있어 문자열 만을 이용해 환경을 시각화했다.
     
-- In Rock scissor paper
+2. A2C(Advantaged Actor-Critic) Model
     
-    strategy : normalization을 하며 현재의 strategy로 어떤 action을 할지 choice
+    Actor-Critic 논문과 강화학습 책을 참조하여 홀덤 환경에 알맞는 A2C 모델을 개발한다. Pytorch를 이용하여 Network의 Hidden Layer수, Layer Dimension을 포함한 hyperparameter를 조정하며 최적을 hyperparameter를 구한다.
     
-    strategy_sum : target_policy
+3. 사람과 대결할 수 있는 홀덤 Application
     
-    regret : 현재의 state에서 other action을 choice했다면 어땠을지에 대한 value
-    
-    regret_sum : strategy을 뽑아내기 위해 episode마다 regret을 계속 sum하며 update
-    
-    **Process :** regret_sum으로부터 get_strategy를 통해 strategy를 얻는다. strategy_sum += strategy now_strategy의 probability로 action을 choice한다. action evalution 후 reward를 얻는다. 현재 state에서 다른 action을 했다면 어땠을지에 대한 식
-    
-    my_regret = self.get_reward(a, opponent_action) - my_reward을 통해 regret_sum을 update
-    
-    이 과정을 iteration
-    
-    → regret_sum을 통해 하지 말아야 할 action들을 배제하는 strategy를 만든다. 그 외의 action들을 normalize 후 확률을 계산해 action을 선택. iteration을 하며 현재 strategy에 대해 계속 regret_sum을 update하며 최선이 아닌 차선의 action을 선택하는 것.
+    1번 과정에서 제작한 Visualized Environment에서 사용자와 학습된 모델 간의 대결을 할 수 있는 기능을 추가해 불완전 정보 게임에서 구현된 모델이 사람과 상대가 가능한지 성능을 분석한다.
     
 
-## 기술 동향
+## III-3 Architecture
 
-## Libratus
+**Actor-Critic Architecture**
 
-2017년 카네기 멜런 대학이 개발한 리브라투스는 미국 피츠버그 슈퍼 컴퓨팅 센터의 브릿지 컴퓨터가 동원됐으며, 브릿지가 보유한 846개 컴퓨트 노드 중 600여개가 사용된다. 여기서 얻는 컴퓨팅 파워는 초당 1.35 페타플롭스 속도를 낸다. 최고 사양 노트북과 비교해 7천250배 빠르며, 메모리 용량은 274테라바이트에 달한다. 인공신경망을 쓰지 않는 대신 강화학습을 활용했고, 이를 통해 스스로 포커게임을 반복하면서 시행착오를 겪는 방법을 사용하였다. 상대방의 심리를 읽어낸다기보다는 매일 자신이 치렀던 게임 중 상대방 선수들이 치고 들어왔던 자신이 가진 취약점을 분석해 보완하는 작업을 거친다. 그 결과, 1:1로 세계 최고의 프로 선수 4인(지미 초우, 다니엘 맥컬리 등)을 상대로 게임에서 승리했다.
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/7354f557-6233-4417-8c2f-7757ef6cf86e/Untitled.png)
 
-Libratus의 한계점은 1:1 대전 방식인 Heads-Up의 대전 방식을 선택한 것이다. 포커는 정보 비대칭적인 게임이지만 1:1로 하는 경우 다른 외부적 영향을 전혀 받지 않는다. 실제로 전문적인 포커 게임을 2명을 초과하는 인원들 끼리의 올인 베팅, 예상치 못한 플레이어로부터에서 나타나는 과감한 베팅과 블러핑 등으로 외부적 환경 요소가 존재하며, 이에 따른 영향을 받을 수밖에 없다.
+입력을 해석하는 파라미터를 공유하느냐 그렇지 않느냐에 따라 Actor-Critic 알고리즘의 구조는 크게 Share-A2C와 Not Share-A2C 2가지로 나눌 수 있다.
 
-## Pluribus
+![Critic-Network.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/c2955652-dad2-48d5-ad8a-44cb90638f29/Critic-Network.jpg)
 
-2019년에는 페이스북과 카네기 멜런 대학이 공동으로 개발한 플루리버스(Pluribus)가 6명이 붙은 포커 게임에서 프로 선수를 격파해 불완전 정보 게임에서도 인간을 능가하게 됐다. 다만 완전 정보 게임에 비하면 여전히 인간에 고전하고 있다. 플루리버스는 신념 기반 회귀학습 알고리즘을 이용했다. ReBeL(Recursive Belief-based Learning)이란 강화 학습과 검색으로 훈련된 인공지능 모델이다. 불완전 정보 게임의 해결책이라는 ReBeL은 자기 강화 학습을 통해 두 AI 모델인 가치 네트워크와 정책 네트워크를 훈련해 인간을 상대할 수 있는 유연한 알고리즘이라고 한다. 기존 포커 AI는 게임 할 때 생기는 변수를 다시 학습했지만 ReBeL은 게임 중 베팅 크기 등 변경 사항이 있어도 실시간으로 바로 학습한다. 하지만 악용 방지를 위해 ReBeL의 코드는 공개하지 않았다. 플루리버스는 각 플레이어가 가질 수 있는 다양한 신념의 확률 분포를 계산해 행동을 결정하도록 했고, 그 결과 인간 톱 플레이어도 뛰어넘는 성적을 거두었다. 리브라투스와는 다르게 6인 게임이 진행되었고 그 중 월드 시리즈 포커 챔피언인 크리스 퍼거슨을 포함해 다수를 상대로 승리를 따냈다. 이러한 AI의 성공은 포커게임 뿐만 아니라 비즈니스협상, 군사전략, 사이버보안, 의학적 치료 등 분야에서도 이러한 AI를 활용할 수 있다.
+![Actor-Nework.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/d64e8cd0-ab1b-4889-bfe4-27a579f33bdf/Actor-Nework.jpg)
+
+**Adversarial A2C (2 agents)**
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/5fbc7e54-b055-4577-86c3-59a221da98af/Untitled.jpeg)
+
+# IV. Implementation
+
+**Critic Network**
+
+```python
+class Critic(nn.Module):
+    def __init__(self, state_space=None):
+        super(Critic, self).__init__()
+        
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(state_space, 64))
+        self.layers.append(nn.Linear(64, 64))
+        self.layers.append(nn.Linear(64, 64))
+        self.layers.append(nn.Linear(64, 1))
+
+    def forward(self, x):
+        for layer in self.layers[:-1]:
+            x = F.relu(layer(x))
+        out = self.layers[-1](x)
+        return out
+```
+
+**Actor Network**
+
+```python
+class Actor(nn.Module):
+		def __init__(self, state_space=None, action_space=None):
+        super(Actor, self).__init__()
+
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(state_space, 128))
+        self.layers.append(nn.Linear(128, 128))
+        self.layers.append(nn.Linear(128, 128))
+        self.layers.append(nn.Linear(128, action_space))
+
+    def forward(self, x):
+        for layer in self.layers[:-1]:
+            x = F.relu(layer(x))
+        out = F.softmax(self.layers[-1](x), dim=0)
+        return out
+```
+
+**A2CAgent**
+
+```python
+class A2CAgent():
+		critic = Critic(state_space=env.observation_space.shape[0]).to(device)
+		actor = Actor(state_space=env.observation_space.shape[0],
+	                action_space=env.action_space.n).to(device)
+	
+	  # Set Optimizer
+		critic_optimizer = optim.Adam(critic.parameters(), lr=critic_lr)
+		actor_optimizer = optim.Adam(actor.parameters(), lr=actor_lr)
+```
+
+**Main Flow**
+
+```python
+for epi in range(episodes):
+		s = env.reset()
+    done = False
+    score = 0
+    step = 0
+    while (not done) and (step < max_step):
+        # Get action
+        a_prob = actor(torch.from_numpy(s).float().to(device))
+        a_distrib = Categorical(a_prob)
+        a = a_distrib.sample()
+
+        # Interaction with Environment
+        s_prime, r, done, _ = env.step(a.item())
+        done_mask = 0 if done is True  else 1
+        batch.append([s,r/100,s_prime,a_prob[a],done_mask])
+```
+
+**Train**
+
+```python
+v_s = critic(s_buf)
+v_prime = critic(s_prime_buf)
+
+Q = r_buf + gamma * v_prime.detach() * done_buf # value target
+A =  Q - v_s                      # Advantage
+
+# Update Critic
+critic_optimizer.zero_grad()
+critic_loss = F.mse_loss(v_s, Q.detach())
+critic_loss.backward()
+critic_optimizer.step()
+
+# Update Actor
+actor_optimizer.zero_grad()
+actor_loss = 0
+for idx, prob in enumerate(prob_buf):
+    actor_loss += -A[idx].detach() * torch.log(prob)
+actor_loss /= len(prob_buf) 
+actor_loss.backward()
+actor_optimizer.step()
+```
+
+**Environment**
+
+```python
+def render(self, mode='human', close=False):
+	  print("├─────────────────────────────────")
+	  print('│ total pot: {}'.format(self._totalpot))
+	  if self._last_actions is not None:
+		    pid = self._last_player.player_id
+		    print('│ last action by player {}:'.format(pid))
+		    print("│", format_action(self._last_player, self._last_actions[pid]))
+
+	  (player_states, community_states) = self._get_current_state()
+	  (player_infos, player_hands) = zip(*player_states)
+	  (community_infos, community_cards) = community_states
+	  print('│ community:')
+	  print('│ -' + hand_to_str(community_cards))
+	  print('│ players:')
+	  for idx, hand in enumerate(player_hands):
+		    print('│ {}{}stack: {}'.format(idx, hand_to_str(hand), self._seats[idx].stack))
+```
+
+                                          **Visualized Environment**
+
+![visualized environment.PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/66159018-5b6d-4ebc-9985-ab3a62a608f7/visualized_environment.png)
+
+# V. Experimental Result
+
+![Share_A2C(layer-128).PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/bf492ede-dcba-4798-9f72-198209fe66ad/Share_A2C(layer-128).png)
+
+**Share-A2C(hidden-layer-dimension-128)**
+
+![NS_A2C.PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/e7869d61-2deb-44d4-83a7-91c68962ab00/NS_A2C.png)
+
+**Not Share-A2C(hidden-layer-dimension-128)**
+
+![Share_A2C(layer-64).PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/2b17bfc2-f139-490d-a6a1-7351e41bbadf/Share_A2C(layer-64).png)
+
+**Share-A2C(hidden-layer-dimension-64)**
+
+![NS_A2C(layer-64).PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/1360691c-2d1a-488b-a9d3-c17d6b45a66e/NS_A2C(layer-64).png)
+
+**Not Share-A2C(hidden-layer-dimension-64)**
+
+# VI. Conclusion
+
+- 네 가지 모델의 경우 정책 에이전트 알고리즘 특성 상 아무리 학습해도 랜덤 확률의 액션이 존재하기 때문에 reward가 수렴하지 못하는 것으로 보인다.
+- Actor-Critic 알고리즘의 두 가지 타입 분석 결과, 입력을 해석하는 네트워크를 공유하는 타입의 구조 Share-A2C는 학습 속도는 느리지만 비교적 안정적으로 reward가 높은 값으로 수렴한다.
+- Not Share-A2C의 경우 actor 네트워크와 critic 네트워크 모두 입력을 따로 해석하는 구조로 비교적 빠른 시간에 높은 reward를 달성했다. 하지만 에피소드가 진행될 수록 reward의 편차가 크다.
+- hidden-layer-dimension-64의 경우 128의 경우보다 학습이 진행될 수록 reward가 수렴하는 경향이 나타났다.
+- 분석 결과 두 가지 구조 중 입력을 해석하는 하이퍼파라미터를 공유하는 Share-A2C가 Not Share-A2C보다 좋은 성능을 보인다.
+- 멀티 프로세싱을 하는 과정에 어려움이 있어 구현은 못했지만 추 후 State-of-the-art에 기여했던 A3C 알고리즘으로 구현할 예정이다.
+
+# Reference
+
+- 강화학습 이론
+
+[바닥부터 배우는 강화 학습 - YES24](http://www.yes24.com/Product/Goods/92337949)
+
+- Baseline code of Texas hold ‘em Environment
+
+[https://github.com/wenkesj/holdem](https://github.com/wenkesj/holdem)
+
+- Pytorch (deep-learning framework)
+
+[점프 투 파이썬](https://wikidocs.net/book/2788)
+
+- Actor-Critic for poker paper
