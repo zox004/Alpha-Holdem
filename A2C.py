@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.tensorboard import SummaryWriter
+from holdemenv import Texasholdem
 
 import numpy as np
 import random
@@ -103,7 +104,7 @@ if __name__ == "__main__":
     exp_num = 'SEED_'+str(seed)
 
     # Set gym environment
-    env = gym.make(env_name)
+    env = Texasholdem(2)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
