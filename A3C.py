@@ -75,14 +75,10 @@ class Actor(nn.Module):
         self.layers.append(nn.Linear(hidden_dim, action_space))
 
     def forward(self, x):
-
         for layer in self.layers[:-1]:
             x = F.relu(layer(x))
-
         out = F.softmax(self.layers[-1](x), dim=0)
-
         return out
-
 
 def train(global_Actor, global_Critic, device, rank):
 
@@ -91,13 +87,13 @@ def train(global_Actor, global_Critic, device, rank):
     env_state_space = 11
     # env_action_space = env.action_space.n
     env_action_space = 4
-    env.add_player(0, stack=2000) # add a player to seat 0 with 2000 "chips"
-    env.add_player(1, stack=2000) # add another player to seat 1 with 2000 "chips"    
+    env.add_player(0, stack=1000000)
+    env.add_player(1, stack=1000000)  
 
-    np.random.seed(seed+rank)
-    random.seed(seed+rank)
-    seed_torch(seed+rank)
-    env.seed(seed+rank)
+    # np.random.seed(seed+rank)
+    # random.seed(seed+rank)
+    # seed_torch(seed+rank)
+    # env.seed(seed+rank)
 
     local_Actor1 = Actor(state_space=env_state_space,
                   action_space=env_action_space,
@@ -128,7 +124,7 @@ def train(global_Actor, global_Critic, device, rank):
     actor_optimizer2 = optim.Adam(global_Actor.parameters(), lr=actor_lr)
     critic_optimizer2 = optim.Adam(global_Critic.parameters(), lr=critic_lr)
 
-    for epi in range(1):
+    for epi in range(10):
         (player_states, (community_infos, community_cards)) = env.reset()
         (player_infos, player_hands) = zip(*player_states)
         done = False
@@ -139,14 +135,16 @@ def train(global_Actor, global_Critic, device, rank):
         last_opp_bet = community_infos[-2]            
         s = my_hands + opp_hands + commu_cards + [pot] + [last_opp_bet] # pot 과 last_opp_bet은 int형이라 list 변환 후 더함
         s = np.array(s)
+        start_stack = player_infos[0][2]
         step = 0
         env.render(mode='human')
+        r = 0
         while (not done) and (step < max_step):
             # Get action
             a_prob = local_Actor1(torch.from_numpy(s).float().to(device))
             a_distrib = Categorical(a_prob)
             a = a_distrib.sample()
-
+            print('-------------',a)
             # Interaction with Environment
             (player_states, (community_infos, community_cards)), rews, done, info = env.step(a.item())
             (player_infos, player_hands) = zip(*player_states)
@@ -156,67 +154,75 @@ def train(global_Actor, global_Critic, device, rank):
             last_opp_bet = community_infos[-2]            
             s_prime = my_hands + opp_hands + commu_cards + [pot] + [last_opp_bet] # pot 과 last_opp_bet은 int형이라 list 변환 후 더함
             s_prime = np.array(s_prime)
-            r = 0
-            # s_prime, r, done, _ = env.step(a.item()) # a.item() action의 확률 중 하나를 뽑아 그거를 int형으로 변환
+            end_stack = player_infos[0][2]
+            diff = end_stack - start_stack
+            if player_infos[0][1]==0:
+                # s_prime, r, done, _ = env.step(a.item()) # a.item() action의 확률 중 하나를 뽑아 그거를 int형으로 변환
+                if end_stack - start_stack > 0:
+                    r += 1
+                else:
+                    r -= 1
+                r += diff * 0.0001
+                done_mask = 0 if done is True  else 1
 
-            done_mask = 0 if done is True  else 1
+                batch.append([s,r/100,s_prime,a_prob[a],done_mask])
+                
+                if len(batch) >= batch_size:
+                        s_buf = []
+                        s_prime_buf = []
+                        r_buf = []
+                        prob_buf = []
+                        done_buf = []
 
-            batch.append([s,r/100,s_prime,a_prob[a],done_mask])
-            
-            if len(batch) >= batch_size:
-                    s_buf = []
-                    s_prime_buf = []
-                    r_buf = []
-                    prob_buf = []
-                    done_buf = []
+                        for item in batch:
+                            s_buf.append(item[0])
+                            r_buf.append(item[1])
+                            s_prime_buf.append(item[2])
+                            prob_buf.append(item[3])
+                            done_buf.append(item[4])
 
-                    for item in batch:
-                        s_buf.append(item[0])
-                        r_buf.append(item[1])
-                        s_prime_buf.append(item[2])
-                        prob_buf.append(item[3])
-                        done_buf.append(item[4])
+                        s_buf = torch.FloatTensor(s_buf).to(device)
+                        r_buf = torch.FloatTensor(r_buf).unsqueeze(1).to(device)
+                        s_prime_buf = torch.FloatTensor(s_prime_buf).to(device)
+                        done_buf = torch.FloatTensor(done_buf).unsqueeze(1).to(device)
 
-                    s_buf = torch.FloatTensor(s_buf).to(device)
-                    r_buf = torch.FloatTensor(r_buf).unsqueeze(1).to(device)
-                    s_prime_buf = torch.FloatTensor(s_prime_buf).to(device)
-                    done_buf = torch.FloatTensor(done_buf).unsqueeze(1).to(device)
+                        v_s = local_Critic1(s_buf)
+                        v_prime = local_Critic1(s_prime_buf)
 
-                    v_s = local_Critic1(s_buf)
-                    v_prime = local_Critic1(s_prime_buf)
+                        Q = r_buf+discount_rate*v_prime.detach()*done_buf # value target
+                        A =  Q - v_s                              # Advantage
+                        
+                        # Update Critic
+                        critic_optimizer1.zero_grad()
+                        critic_loss = F.mse_loss(v_s, Q.detach())
+                        critic_loss.backward()
+                        for global_param, local_param in zip(global_Critic.parameters(), local_Critic1.parameters()):
+                            global_param._grad = local_param.grad
+                        critic_optimizer1.step()
 
-                    Q = r_buf+discount_rate*v_prime.detach()*done_buf # value target
-                    A =  Q - v_s                              # Advantage
-                    
-                    # Update Critic
-                    critic_optimizer1.zero_grad()
-                    critic_loss = F.mse_loss(v_s, Q.detach())
-                    critic_loss.backward()
-                    for global_param, local_param in zip(global_Critic.parameters(), local_Critic1.parameters()):
-                        global_param._grad = local_param.grad
-                    critic_optimizer1.step()
+                        # Update Actor
+                        actor_optimizer1.zero_grad()
+                        actor_loss = 0
+                        for idx, prob in enumerate(prob_buf):
+                            actor_loss += -A[idx].detach() * torch.log(prob)
+                        actor_loss /= len(prob_buf) 
+                        actor_loss.backward()
 
-                    # Update Actor
-                    actor_optimizer1.zero_grad()
-                    actor_loss = 0
-                    for idx, prob in enumerate(prob_buf):
-                        actor_loss += -A[idx].detach() * torch.log(prob)
-                    actor_loss /= len(prob_buf) 
-                    actor_loss.backward()
+                        for global_param, local_param in zip(global_Actor.parameters(), local_Actor1.parameters()):
+                            global_param._grad = local_param.grad
+                        actor_optimizer1.step()
 
-                    for global_param, local_param in zip(global_Actor.parameters(), local_Actor1.parameters()):
-                        global_param._grad = local_param.grad
-                    actor_optimizer1.step()
+                        local_Actor1.load_state_dict(global_Actor.state_dict())
+                        local_Critic1.load_state_dict(global_Critic.state_dict())
 
-                    local_Actor1.load_state_dict(global_Actor.state_dict())
-                    local_Critic1.load_state_dict(global_Critic.state_dict())
+                        batch = []
 
-                    batch = []
-
-            s = s_prime
-            
-            score += r
+                s = s_prime
+                score = 0        
+                score += r
             step += 1
+            if epi % print_interval == 0:   
+                print("EPISODES:{}, SCORE:{}".format(epi  , score/print_interval))
             env.render(mode='human')
         
     env.close()
@@ -227,7 +233,7 @@ def train(global_Actor, global_Critic, device, rank):
 def test(global_Actor, device, rank):
     
     env = holdemEnv.TexasHoldemEnv(2)
-
+    
     np.random.seed(seed)
     random.seed(seed)
     seed_torch(seed)
@@ -235,7 +241,7 @@ def test(global_Actor, device, rank):
     
     score = 0
 
-    for epi in range(1):
+    for epi in range(5):
         (player_states, (community_infos, community_cards)) = env.reset()
         (player_infos, player_hands) = zip(*player_states)
         done = False
@@ -254,7 +260,7 @@ def test(global_Actor, device, rank):
             a = a_distrib.sample()
 
             # Interaction with Environment
-            (player_states, (community_infos, community_cards)), rews, done, info = env.step(a.item())
+            (player_states, (community_infos, community_cards)), rews, done, info = env.step(a.item)
             (player_infos, player_hands) = zip(*player_states)
             my_hands, opp_hands = player_hands
             commu_cards = community_cards
@@ -287,7 +293,7 @@ model_name = "Actor-Critic"
 env_name = "LunarLander-v2"
 seed = 1
 exp_num = 'SEED_'+str(seed)
-print_interval = 10
+print_interval = 1
 
 # Global parameters
 actor_lr = 1e-4
@@ -327,10 +333,10 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         device = torch.device("cuda")
     device = torch.device("cpu")
-    np.random.seed(seed)
-    random.seed(seed)
-    seed_torch(seed)
-    env.seed(seed)
+    # np.random.seed(seed)
+    # random.seed(seed)
+    # seed_torch(seed)
+    # env.seed(seed)
 
     global_Actor1 = Actor(state_space=env_state_space,
                   action_space=env_action_space,
@@ -346,7 +352,7 @@ if __name__ == "__main__":
     global_Critic2 = Critic(state_space=env_state_space,
                     num_hidden_layer=hidden_layer_num,
                     hidden_dim=hidden_dim_size).to(device)
-
+    train(global_Actor1, global_Critic1, device, 1)
     env.close()
 
     global_Actor1.share_memory()
@@ -355,19 +361,19 @@ if __name__ == "__main__":
     global_Critic2.share_memory()
 
     processes = []
-    process_num = 5
-    # rank=1
-    # train(global_Actor1, global_Critic1, device, rank)
+    process_num = 1
+    rank=1
+    train(global_Actor1, global_Critic1, device, rank)
     mp.set_start_method('spawn') # Must be spawn
     print("MP start method:",mp.get_start_method())
 
     for rank in range(process_num): 
-        # if rank == 0:
-        #     p1 = mp.Process(target=test, args=(global_Actor1, device, rank, ))
-        #     p2 = mp.Process(target=test, args=(global_Actor2, device, rank, ))
-        # else:
-        p1 = mp.Process(target=train, args=(global_Actor1, global_Critic1, device, rank, ))
-        # p2 = mp.Process(target=train, args=(global_Actor2, global_Critic2, device, rank, ))
+        if rank == 0:
+            p1 = mp.Process(target=test, args=(global_Actor1, device, rank, ))
+            p2 = mp.Process(target=test, args=(global_Actor2, device, rank, ))
+        else:
+            p1 = mp.Process(target=train, args=(global_Actor1, global_Critic1, device, rank, ))
+            p2 = mp.Process(target=train, args=(global_Actor2, global_Critic2, device, rank, ))
 
         p1.start()
         processes.append(p1)
