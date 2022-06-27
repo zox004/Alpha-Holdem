@@ -10,7 +10,7 @@ Deep Reinforcement Learning을 이용한 홀덤 에이전트 구현 및 결과 �
 - 최근 여러 연구를 살펴보면, 불완전 정보 환경에서 CFR 알고리즘이 주로 쓰이며, 2017년 카네기 맬런 대학에서 연구한 리브라투스는 강화학습과 CFR(Counterfactual Regret) 알고리즘을 사용해 좋은 성과를 이루어냈다.
 - DRL 알고리즘 중 정책 기반 에이전트는 Contiuous Action Space에서도 학습 성능이 좋기 때문에 정책 기반 에이전트 중에서도 좋은 성능을 Actor-Critic 알고리즘을 사용할 것이다.
 - Actor-Critic 알고리즘은 가치함수와 정책함수를 두 개의 네트워크를 사용하는 것이 특징으로 $\pi (s,a)$값과 $V(s)$값을 이용해 학습을 진행한다.
-- A2C(Advantage Actor-Critic)은 ****Actor-Critic의 Actor의 기대출력으로 Advantage를 사용하면 A2C
+- A2C(Advantage Actor-Critic)은 Actor-Critic의 Actor의 기대출력으로 Advantage를 사용하면 A2C
 가 된다. Advantage는 예상했던 것, $V(s)$보다 얼마나 더 좋은 값인지를 판단하는 값으로, 이는 분산을 줄이는 효과가 있어 A2C 알고리즘을 이용해 학습을 진행해보았다.
 
 # II. Purpose
@@ -26,7 +26,7 @@ Deep Reinforcement Learning을 이용한 홀덤 에이전트 구현 및 결과 �
 
 **MDP of the holdem Environment**
 
-                                                             $< S, A, P, R, γ >$
+$< S, A, P, R, γ >$
 
 $S$ : My hand, Community hand, Pot, My Stack, Opponent Stack, Opponent Bet
 
@@ -36,25 +36,25 @@ $A$ : Fold, Check, Call, Raise(Continuous Action space = $10^{161}$ in No-Limit 
 
 ⇒ 베팅 금액은 연속적이므로 방대한 Actions space를 가진다
 
-$P$ ****: $P_{ss'}^a$ $=  1(∀a, ∀s, ∀s’ )$
+$P$ : $P_{ss'}^a$ $=  1(∀a, ∀s, ∀s’ )$
 
 $R$ : 라운드 승패 $\pm$ 1, 라운드 마다 칩의 변화  * 0.005
 
-$**γ ∈ [0.05, 0.99]**$ : discount factor (Generally, 0.99)
+$γ ∈ [0.05, 0.99]$ : discount factor (Generally, 0.99)
 
 ## III-2. Functional Requirement
 
 1. Visualized Environment
     
-    Python을 이용해 게임을 시각화한다. 이전에 tkinter 라이브러리를 이용해 환경에 대한 정보와 GUI를 멀티스레딩으로 구현했지만, 정보 만을 이용해 학습하는 강화학습엔 어려움이 있어 문자열 만을 이용해 환경을 시각화했다.
+	Python을 이용해 게임을 시각화한다. 이전에 tkinter 라이브러리를 이용해 환경에 대한 정보와 GUI를 멀티스레딩으로 구현했지만, 정보 만을 이용해 학습하는 강화학습엔 어려움이 있어 문자열 만을 이용해 환경을 시각화했다.
     
 2. A2C(Advantaged Actor-Critic) Model
     
-    Actor-Critic 논문과 강화학습 책을 참조하여 홀덤 환경에 알맞는 A2C 모델을 개발한다. Pytorch를 이용하여 Network의 Hidden Layer수, Layer Dimension을 포함한 hyperparameter를 조정하며 최적을 hyperparameter를 구한다.
+	Actor-Critic 논문과 강화학습 책을 참조하여 홀덤 환경에 알맞는 A2C 모델을 개발한다. Pytorch를 이용하여 Network의 Hidden Layer수, Layer Dimension을 포함한 hyperparameter를 조정하며 최적을 hyperparameter를 구한다.
     
 3. 사람과 대결할 수 있는 홀덤 Application
     
-    1번 과정에서 제작한 Visualized Environment에서 사용자와 학습된 모델 간의 대결을 할 수 있는 기능을 추가해 불완전 정보 게임에서 구현된 모델이 사람과 상대가 가능한지 성능을 분석한다.
+	1번 과정에서 제작한 Visualized Environment에서 사용자와 학습된 모델 간의 대결을 할 수 있는 기능을 추가해 불완전 정보 게임에서 구현된 모델이 사람과 상대가 가능한지 성능을 분석한다.
     
 
 ## III-3 Architecture
@@ -194,7 +194,7 @@ def render(self, mode='human', close=False):
 		    print('│ {}{}stack: {}'.format(idx, hand_to_str(hand), self._seats[idx].stack))
 ```
 
-                                          **Visualized Environment**
+**Visualized Environment**
 
 ![visualized environment.PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/66159018-5b6d-4ebc-9985-ab3a62a608f7/visualized_environment.png)
 
@@ -229,14 +229,14 @@ def render(self, mode='human', close=False):
 
 - 강화학습 이론
 
-[바닥부터 배우는 강화 학습 - YES24](http://www.yes24.com/Product/Goods/92337949)
+	[바닥부터 배우는 강화 학습 - YES24](http://www.yes24.com/Product/Goods/92337949)
 
 - Baseline code of Texas hold ‘em Environment
 
-[https://github.com/wenkesj/holdem](https://github.com/wenkesj/holdem)
+	[https://github.com/wenkesj/holdem](https://github.com/wenkesj/holdem)
 
 - Pytorch (deep-learning framework)
 
-[점프 투 파이썬](https://wikidocs.net/book/2788)
+	[점프 투 파이썬](https://wikidocs.net/book/2788)
 
 - Actor-Critic for poker paper
