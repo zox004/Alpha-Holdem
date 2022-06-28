@@ -61,17 +61,17 @@ $γ ∈ [0.05, 0.99]$ : discount factor (Generally, 0.99)
 
 **Actor-Critic Architecture**
 
-![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/7354f557-6233-4417-8c2f-7757ef6cf86e/Untitled.png)
+![image](https://user-images.githubusercontent.com/56228085/176178760-3245ad08-efa3-44c1-a6f9-57abd39b570f.png)
 
 입력을 해석하는 파라미터를 공유하느냐 그렇지 않느냐에 따라 Actor-Critic 알고리즘의 구조는 크게 Share-A2C와 Not Share-A2C 2가지로 나눌 수 있다.
 
-![Critic-Network.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/c2955652-dad2-48d5-ad8a-44cb90638f29/Critic-Network.jpg)
+![image](https://user-images.githubusercontent.com/56228085/176179054-5d721eb9-3a91-4c04-ba25-70cfad161871.png)
 
-![Actor-Nework.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/d64e8cd0-ab1b-4889-bfe4-27a579f33bdf/Actor-Nework.jpg)
+![image](https://user-images.githubusercontent.com/56228085/176179128-efcdcd7d-fe2d-4903-af99-d3c72ccf22d6.png)
 
 **Adversarial A2C (2 agents)**
 
-![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/5fbc7e54-b055-4577-86c3-59a221da98af/Untitled.jpeg)
+![image](https://user-images.githubusercontent.com/56228085/176179205-ade82f7f-8ea1-4a54-87d2-7a854e661fac.png)
 
 # IV. Implementation
 
@@ -196,25 +196,17 @@ def render(self, mode='human', close=False):
 
 **Visualized Environment**
 
-![visualized environment.PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/66159018-5b6d-4ebc-9985-ab3a62a608f7/visualized_environment.png)
+![image](https://user-images.githubusercontent.com/56228085/176179317-b2e55939-d28b-4d67-9879-c641f441711c.png)
 
 # V. Experimental Result
 
-![Share_A2C(layer-128).PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/bf492ede-dcba-4798-9f72-198209fe66ad/Share_A2C(layer-128).png)
+![image](https://user-images.githubusercontent.com/56228085/176179941-99bba7e4-024d-4c94-82e3-9179b4ca0476.png)
 
-**Share-A2C(hidden-layer-dimension-128)**
+![image](https://user-images.githubusercontent.com/56228085/176179660-d99b561d-193d-43ff-8054-65bd1a27a9a3.png)
 
-![NS_A2C.PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/e7869d61-2deb-44d4-83a7-91c68962ab00/NS_A2C.png)
+![image](https://user-images.githubusercontent.com/56228085/176179742-db054eb9-b4b9-4b48-832b-be39c60513a8.png)
 
-**Not Share-A2C(hidden-layer-dimension-128)**
-
-![Share_A2C(layer-64).PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/2b17bfc2-f139-490d-a6a1-7351e41bbadf/Share_A2C(layer-64).png)
-
-**Share-A2C(hidden-layer-dimension-64)**
-
-![NS_A2C(layer-64).PNG](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/1360691c-2d1a-488b-a9d3-c17d6b45a66e/NS_A2C(layer-64).png)
-
-**Not Share-A2C(hidden-layer-dimension-64)**
+![image](https://user-images.githubusercontent.com/56228085/176179764-608e2f6d-43ab-4669-abcf-b0c6d70d618b.png)
 
 # VI. Conclusion
 
